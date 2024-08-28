@@ -17,7 +17,11 @@ from typing import Optional
 
 import threading
 
-# Modify WebDriverManager to use thread-local storage for WebDriver instances
+
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
 class WebDriverManager:
     _instance = None
     _lock = threading.Lock()
@@ -41,20 +45,21 @@ class WebDriverManager:
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
             self._thread_local.driver = webdriver.Chrome(options=options)
-            # print(f"Initiated a new instance of Selenium WebDriver for thread {threading.get_ident()}")
+            logger.debug(f"Initiated a new instance of Selenium WebDriver for thread {threading.get_ident()}")
         return self._thread_local.driver
 
     def close_driver(self):
         if hasattr(self._thread_local, 'driver') and isinstance(self._thread_local.driver, WebDriver):
             self._thread_local.driver.close()
-            # print(f"Closed Selenium WebDriver instance for thread {threading.get_ident()}")
+            logger.debug(f"Closed Selenium WebDriver instance for thread {threading.get_ident()}")
         self._thread_local.driver = None
 
 
 def accept_cookies_conditions():
     driver = WebDriverManager().get_driver(headless=None)
     try:
-        accept_button = WebDriverWait(driver=driver, timeout=5).until(EC.presence_of_element_located((By.XPATH,"//button[@class='VfPpkd-LgbsSe VfPpkd-LgbsSe-OWXEXe-k8QpJ VfPpkd-LgbsSe-OWXEXe-dgl2Hf nCP5yc AjY5Oe DuMIQc LQeN7 XWZjwc']")))
+        accept_button = WebDriverWait(driver=driver, timeout=5).until(EC.presence_of_element_located((By.XPATH, "//button[@class='VfPpkd-LgbsSe VfPpkd-LgbsSe-OWXEXe-k8QpJ VfPpkd-LgbsSe-OWXEXe-dgl2Hf nCP5yc AjY5Oe DuMIQc LQeN7 XWZjwc']")))
         accept_button.click()
+        logger.debug("Accepted cookies conditions.")
     except (NoSuchElementException, TimeoutException):
-        pass
+        logger.error("Failed to find the accept cookies button.")

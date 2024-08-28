@@ -1,3 +1,5 @@
+from retry import retry
+
 from selenium.common.exceptions import (
     TimeoutException,
     JavascriptException,
@@ -9,7 +11,7 @@ from src.extract_support import (
     extract_place_info,
     navigate_to_reviews,
     discover_reviews,
-    process_reviews,
+    process_reviews,simplify_url
 )
 
 
@@ -20,6 +22,10 @@ from typing import Optional
 
 import time
 import random
+
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def extract_place(
@@ -53,6 +59,7 @@ def extract_place(
     # Each thread will initialize its own WebDriver
     driver_manager = WebDriverManager()
     driver = driver_manager.get_driver(headless=True)
+    logger.debug(f"Navigating to {simplify_url(place_gmaps_url)}")
 
     # Waits a random amount of time to avoid calls all together
     time.sleep(random.randint(0, 4) / 10)
@@ -65,23 +72,26 @@ def extract_place(
         navigate_to_reviews(place_gmaps_url=place_gmaps_url, topic=topic)
 
         local_store = _collect_reviews(topic, place_info, limit)
+        logger.debug(
+            f"Collected {len(local_store)} reviews for {place_info.get('name', None) or simplify_url(place_gmaps_url)}"
+        )
 
-    except (WebDriverException):
-        print(
-            f"Error in processing {place_gmaps_url[:min(100, len(place_gmaps_url)-1)]}, will skip it.\nDetails: {format_exc()}"
+    except WebDriverException as e:
+        logger.error(
+            f"Error in processing {simplify_url(place_gmaps_url)}, will skip it. Details: {e}"
         )
     finally:
         driver_manager.close_driver()
 
     if store:
+        logger.debug("Merging collected reviews with existing store.")
         return pd.concat([store, local_store], ignore_index=True)
     return local_store
 
 
-from retry import retry
-
-
-@retry(exceptions=[WebDriverException, TimeoutException], tries=2, delay=1, jitter=(1, 3))
+@retry(
+    exceptions=[WebDriverException, TimeoutException], tries=2, delay=1, jitter=(1, 3), logger=logger
+)
 def _collect_reviews(
     topic: str, place_info: dict, limit: Optional[int]
 ) -> pd.DataFrame:
@@ -116,8 +126,6 @@ def _collect_reviews(
                 still_to_go = False
 
         except (TimeoutException, JavascriptException, WebDriverException) as e:
-            print(f"Error during processing reviews: {e}")
+            logger.error(f"Error during an iteration in review processing - Details: {e}. Will resume from where I left.")
             still_to_go = False
-
-    print(f"Got {len(local_store)} reviews for {place_info.get('name', '--')}")
     return local_store

@@ -10,6 +10,10 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from src.driver import WebDriverManager
 
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 REVIEWS_ELS_CLASS = "jftiEf.fontBodyMedium"
 MORE_BTN_CLASS = "w8nwRe.kyuRq"
@@ -26,6 +30,7 @@ def discover_reviews(
     driver = WebDriverManager().get_driver()
 
     all_reviews_els = driver.find_elements(By.CLASS_NAME, REVIEWS_ELS_CLASS)
+    logger.debug(f"Found {len(all_reviews_els)} review elements.")
 
     # If a limit is provided, slice the list to only include up to that many elements
     if limit is not None and limit > 0:
@@ -41,8 +46,7 @@ def discover_reviews(
     else:
         new_els = all_reviews_els
 
-    # print(f"Found {len(new_els)} new elements")
-
+    logger.debug(f"Returning {len(new_els)} new review elements.")
     return new_els
 
 
@@ -52,7 +56,9 @@ def get_text_element(
     try:
         return container_el.find_element(*locator).text
     except NoSuchElementException:
+        logger.debug(f"Element with locator {locator} not found in container.")
         return default
+    
     
 def get_url_element(
     container_el: WebElement, locator: tuple[str, str], default: str = ""
@@ -60,8 +66,8 @@ def get_url_element(
     try:
         return container_el.find_element(*locator).get_attribute("href")
     except NoSuchElementException:
+        logger.debug(f"Element with locator {locator} not found in container.")
         return default
-
 
 
 def process_reviews(
@@ -70,12 +76,11 @@ def process_reviews(
     place_info: Optional[dict[str, Any]] = None,
 ) -> pd.DataFrame:
     """Runs through the list of reviews, extracts the relevant information and stores them in a pandas store. It will also include place_info in the row, if provided"""
-    # print(f"Will work on {len(reviews_list)} reviews")
     review_data_list = []
-
     from src.clean_review import pick_topic_relevant_chunks
-
     driver = WebDriverManager().get_driver()
+
+    logger.debug(f"Processing {len(reviews_list)} reviews for topic '{topic}'.")
 
     for review_el in reviews_list:
         driver.execute_script(
@@ -84,14 +89,12 @@ def process_reviews(
         time.sleep(1)
 
         try:
-            # Tries to click on the "More" button to expand the review and get the full text
             more_button = review_el.find_element(By.CLASS_NAME, MORE_BTN_CLASS)
             more_button.click()
         except NoSuchElementException:
             pass
 
         try:
-
             review = get_text_element(
                 container_el=review_el, locator=(By.CLASS_NAME, REVIEW_TEXT_EL_CLASS)
             )
@@ -103,9 +106,6 @@ def process_reviews(
             )
 
             relevant_text = pick_topic_relevant_chunks(text=review, topic=topic)
-
-            # print(relevant_text)
-
             if relevant_text:
                 review_data_list.append(
                     {
@@ -115,19 +115,17 @@ def process_reviews(
                         **place_info,
                     }
                 )
-
         except Exception as e:
-            print(f"Failed to extract data from an element: {e}")
+            logger.error(f"Failed to extract data from an element: {e}")
 
+    logger.debug(f"Processed {len(review_data_list)} relevant reviews.")
     return pd.DataFrame(review_data_list)
-
 
 from urllib3.exceptions import HTTPError
 
 def navigate_to_reviews(place_gmaps_url: str, topic: str):
     try:
         driver = WebDriverManager().get_driver()
-
         reviews_section = WebDriverWait(driver=driver, timeout=10).until(
             EC.presence_of_element_located((By.XPATH, REVIEW_SECTION_EL_XPATH))
         )
@@ -138,10 +136,10 @@ def navigate_to_reviews(place_gmaps_url: str, topic: str):
         reviews_search_box = driver.find_element(By.CLASS_NAME, REVIEWS_SEARCHBOX_EL_CLASS)
         reviews_search_box.send_keys(topic)
         reviews_search_box.send_keys(Keys.RETURN)
-        # TODO: wait for new elements to load instead.
         time.sleep(3)
+        logger.debug(f"Navigated to reviews section for URL: {simplify_url(place_gmaps_url)}")
     except HTTPError as e:
-        print(f"Couldn't connect to URL: {place_gmaps_url}")
+        logger.error(f"Couldn't connect to URL: {simplify_url(place_gmaps_url)}")
         raise e
 
 
@@ -158,6 +156,7 @@ WEB_CLASS = 'a[data-item-id="authority"]'
 def extract_place_info(place_gmaps_url: str = None) -> dict[str, str]:
 
     driver = WebDriverManager().get_driver()
+    logger.debug(f"Extracting place info for URL: {simplify_url(place_gmaps_url)}")
 
     # Extract name and description of Place
     name = get_text_element(driver, (By.CLASS_NAME, ORIGINAL_MUSEUM_NAME_CLASS), None) or get_text_element(driver, (By.CLASS_NAME, ENG_MUSEUM_NAME_CLASS))
@@ -171,9 +170,25 @@ def extract_place_info(place_gmaps_url: str = None) -> dict[str, str]:
         "arguments[0].scrollIntoView({block: 'center'});", details_section
     )
 
-# Extracts important details
+    # Extracts important details
     address = get_text_element(driver, (By.CSS_SELECTOR, ADDRESS_CLASS))
     phone = get_text_element(driver, (By.CSS_SELECTOR, PHONE_CLASS))
     web = get_url_element(driver, (By.CSS_SELECTOR, WEB_CLASS))
 
-    return {"place_url": place_gmaps_url, "name": name, "description":description, "address": address, "phone": phone, "web":web}
+    logger.debug(f"Extracted info - Name: {name}, Address: {address}, Phone: {phone}, Web: {web}")
+    return {"place_url": place_gmaps_url, "name": name, "description": description, "address": address, "phone": phone, "web": web}
+
+import re
+
+def simplify_url(url):
+    # The regex pattern to extract the desired part of the URL
+    pattern = r"^https:\/\/www\.google\.com\/maps\/place\/[^\/]+\/"
+
+    # Using re.search to find the match
+    match = re.search(pattern, url)
+
+    # Extracting and printing the result
+    if match:
+        return  match.group(0)
+        
+    return url

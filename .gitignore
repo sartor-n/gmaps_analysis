@@ -3,3 +3,7 @@ __pycache__
 *.csv
 *.json
 *.ipynb
+!main.ipynb
+!example_places.json
+!example_reviews.csv
+!example_analysis.csv

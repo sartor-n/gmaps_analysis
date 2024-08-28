@@ -7,6 +7,10 @@ from src.extract_reviews import extract_place
 
 from typing import List, Optional
 
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def extract_places_batch(
     topic: str,
@@ -37,23 +41,28 @@ def extract_places_batch(
     # Initialize an empty DataFrame
     final_store = pd.DataFrame()
 
+    logger.debug(f"Starting batch extraction of {len(list_of_places_urls)} places...")
     # Use ThreadPoolExecutor for parallel execution
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {
-            executor.submit(extract_place,  topic, url, limit): url
+            executor.submit(extract_place, topic, url, limit): url
             for url in list_of_places_urls
         }
 
         for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Processing Places"
+            as_completed(futures), total=len(futures), desc="Processing Places", postfix="\n"
         ):
-            results_store = future.result()
+            try:
+                results_store = future.result()
 
-            if not isinstance(results_store, pd.DataFrame):
-                print(f"I was expecting Dataframe from extract_place, I got {type(results_store)}")
-            elif not results_store.empty:
-                final_store = pd.concat([final_store, results_store], ignore_index=True)
+                if not isinstance(results_store, pd.DataFrame):
+                    logger.error(f"Expected DataFrame from extract_place, got {type(results_store)}")
+                elif not results_store.empty:
+                    final_store = pd.concat([final_store, results_store], ignore_index=True)
+            except Exception as e:
+                logger.error(f"Error processing a place: {e}")
 
+    logger.debug(f"Completed batch extraction. Total extracted reviews: {len(final_store)}")
     return final_store
  
 
@@ -80,13 +89,16 @@ def loads_urls(
     """
     if list_of_places_urls:
         # Uses the provided list
+        logger.debug("Using provided list of URLs.")
         # TODO: add validation
         pass
     elif input_file:
+        logger.debug(f"Loading URLs from file: {input_file}")
         # Loads the list of URLs from JSON persistently stored
         with open(input_file, "r", encoding="utf-8") as f:
             list_of_places_urls = json.load(f)
     elif not list_of_places_urls and not input_file:
+        logger.error("Both 'list_of_places_urls' and 'input_file' are undefined.")
         raise ValueError(
             "At least one of list_of_places_urls and input_file must be defined"
         )

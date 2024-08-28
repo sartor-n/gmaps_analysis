@@ -6,6 +6,10 @@ import openai
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.pydantic_v1 import BaseModel
+
+from src.logger import get_logger
+
+logger = get_logger(__name__)
    
 def aggregate_reviews(store: pd.DataFrame) -> pd.DataFrame:
     """
@@ -22,7 +26,6 @@ def aggregate_reviews(store: pd.DataFrame) -> pd.DataFrame:
         .apply(lambda x: "\n\n".join(x))
         .reset_index()
     )
-
 
 def create_prompt_template() -> PromptTemplate:
     """
@@ -70,14 +73,18 @@ def generate_insights(
 
         formatted_prompt = prompt_template.format(reviews=reviews, questions=questions)
 
-        response = structured_llm.invoke(formatted_prompt)  # type: MuseumRating
+        try:
+            response = structured_llm.invoke(formatted_prompt)  # type: BaseModel
 
-        # Store the result in the dictionary
-        results[place_name] = {
-            **response.dict(),
-            **row[["name", "description", "address", "phone", "web", "review"]].to_dict(),
-        }
-    
+            # Store the result in the dictionary
+            results[place_name] = {
+                **response.dict(),
+                **row[["name", "description", "address", "phone", "web", "review"]].to_dict(),
+            }
+            logger.debug(f"Insights generated for {place_name}.")
+        except Exception as e:
+            logger.error(f"Error generating insights for {place_name}: {e}")
+
     return results
 
 

@@ -1,3 +1,5 @@
 langchain
 pandas
 openai
+loguru
+retry
